@@ -1,39 +1,41 @@
 <!doctype html>
 <html>
 <head>
-  <meta charset="utf-8" />
+  <meta charset="utf-8"/>
   <title>TVC UI</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <style>
-    body{font-family:system-ui,Arial;margin:24px;max-width:900px}
-    section{border:1px solid #ddd;padding:16px;border-radius:12px;margin-bottom:16px}
-    h2{margin:0 0 12px}
+    body{font-family:system-ui,Arial;margin:24px;max-width:920px}
+    section{border:1px solid #ddd;padding:16px;border-radius:12px;margin:12px 0}
+    h1,h2{margin:0 0 12px}
     .row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
-    input[type=number]{width:100px}
-    .kv{display:grid;grid-template-columns:160px 1fr;gap:6px;align-items:center}
+    .kv{display:grid;grid-template-columns:180px 1fr;gap:8px;align-items:center}
+    input[type=number]{width:110px}
+    pre{background:#f6f8fa;padding:12px;border-radius:8px;overflow:auto}
     .mono{font-family:ui-monospace,Consolas,monospace}
+    .pill{padding:4px 8px;border-radius:999px;border:1px solid #ccc}
   </style>
 </head>
 <body>
-  <h1>TVC — Contrôle</h1>
+  <h1>TVC — Interface</h1>
 
   <section>
-    <h2>Modes</h2>
+    <h2>Mode</h2>
     <div class="row">
       <button onclick="setMode('manuel')">Manuel</button>
       <button onclick="setMode('auto_tvc')">Auto TVC</button>
       <button onclick="setMode('demon')">Démon</button>
+      <span id="mode" class="pill">mode: ?</span>
+      <span id="ver" class="pill">version: ?</span>
     </div>
   </section>
 
   <section>
     <h2>Commandes</h2>
     <div class="kv">
-      <label>Setpoint (deg)</label>
-      <input id="sp" type="number" step="1" value="0">
-      <label>Angle limit (deg)</label>
-      <input id="alim" type="number" step="1" value="15">
-      <label>Gains (Kp, Ki, Kd)</label>
+      <label>Setpoint (deg)</label><input id="sp" type="number" step="1" value="0">
+      <label>Angle limit (deg)</label><input id="alim" type="number" step="1" value="15">
+      <label>Gains (Kp Ki Kd)</label>
       <div class="row">
         <input id="kp" type="number" step="0.1" value="1.0">
         <input id="ki" type="number" step="0.01" value="0.0">
@@ -41,8 +43,8 @@
       </div>
       <label>Actions</label>
       <div class="row">
-        <button onclick="setZero()">Set Zero</button>
-        <button onclick="setOrigin()">Set Origin</button>
+        <button onclick="post('/api/set_zero')">Set Zero</button>
+        <button onclick="post('/api/set_origin')">Set Origin</button>
         <button onclick="apply()">Appliquer</button>
       </div>
     </div>
@@ -50,31 +52,49 @@
 
   <section>
     <h2>Télémétrie</h2>
+    <div class="row">
+      <span id="angle" class="pill">angle: ?°</span>
+      <span id="u" class="pill">u: ?</span>
+      <span id="sat" class="pill">sat: ?</span>
+    </div>
     <pre id="telemetry" class="mono">{}</pre>
   </section>
 
 <script>
-async function setMode(m){await fetch('/api/mode',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({mode:m})});}
-async function setZero(){await fetch('/api/set_zero',{method:'POST'});}
-async function setOrigin(){await fetch('/api/set_origin',{method:'POST'});}
+async function getJSON(url){const r=await fetch(url); if(!r.ok) throw new Error(r.status); return r.json();}
+async function post(url,body){const r=await fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:body?JSON.stringify(body):null}); if(!r.ok) throw new Error(r.status); return r.json();}
+
+async function setMode(m){await post('/api/mode',{mode:m});}
 async function apply(){
   const sp=parseFloat(document.getElementById('sp').value||0);
   const alim=parseFloat(document.getElementById('alim').value||15);
   const kp=parseFloat(document.getElementById('kp').value||1);
   const ki=parseFloat(document.getElementById('ki').value||0);
   const kd=parseFloat(document.getElementById('kd').value||0);
-  await fetch('/api/setpoint',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({deg:sp})});
-  await fetch('/api/angle_limit',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({deg:alim})});
-  await fetch('/api/gains',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({kp,ki,kd})});
+  await post('/api/setpoint',{deg:sp});
+  await post('/api/angle_limit',{deg:alim});
+  await post('/api/gains',{kp,ki,kd});
 }
+
 async function poll(){
   try{
-    const r=await fetch('/api/state'); const j=await r.json();
-    document.getElementById('telemetry').textContent = JSON.stringify(j,null,2);
-  }catch(e){/* no-op */}
-  setTimeout(poll,200);
+    const st=await getJSON('/api/state');
+    document.getElementById('mode').textContent = 'mode: '+st.mode;
+    document.getElementById('angle').textContent = 'angle: '+st.angle_deg.toFixed(2)+'°';
+    document.getElementById('u').textContent = 'u: '+st.u.toFixed(2);
+    document.getElementById('sat').textContent = 'sat: '+(st.sat?'oui':'non');
+    document.getElementById('telemetry').textContent = JSON.stringify(st,null,2);
+  }catch(e){/* ignore pour l'UI */}
+  setTimeout(poll, 150);
 }
-poll();
+
+(async ()=>{
+  try{
+    const h=await getJSON('/api/health');
+    document.getElementById('ver').textContent = 'version: '+(h.version||'?');
+  }catch(e){}
+  poll();
+})();
 </script>
 </body>
 </html>
