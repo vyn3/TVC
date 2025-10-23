@@ -5,15 +5,17 @@
   <title>TVC UI</title>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <style>
+    :root{--bd:#ddd;--bg:#f6f8fa}
     body{font-family:system-ui,Arial;margin:24px;max-width:920px}
-    section{border:1px solid #ddd;padding:16px;border-radius:12px;margin:12px 0}
+    section{border:1px solid var(--bd);padding:16px;border-radius:12px;margin:12px 0}
     h1,h2{margin:0 0 12px}
     .row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
     .kv{display:grid;grid-template-columns:180px 1fr;gap:8px;align-items:center}
     input[type=number]{width:110px}
-    pre{background:#f6f8fa;padding:12px;border-radius:8px;overflow:auto}
+    pre{background:var(--bg);padding:12px;border-radius:8px;overflow:auto}
     .mono{font-family:ui-monospace,Consolas,monospace}
     .pill{padding:4px 8px;border-radius:999px;border:1px solid #ccc}
+    button{cursor:pointer}
   </style>
 </head>
 <body>
@@ -24,7 +26,7 @@
     <div class="row">
       <button onclick="setMode('manuel')">Manuel</button>
       <button onclick="setMode('auto_tvc')">Auto TVC</button>
-      <button onclick="setMode('demon')">Démon</button>
+      <button onclick="setMode('demo')">Demo</button>
       <span id="mode" class="pill">mode: ?</span>
       <span id="ver" class="pill">version: ?</span>
     </div>
@@ -34,10 +36,10 @@
     <h2>Commandes</h2>
     <div class="kv">
       <label>Setpoint (deg)</label><input id="sp" type="number" step="1" value="0">
-      <label>Angle limit (deg)</label><input id="alim" type="number" step="1" value="15">
+      <label>Angle limit (deg)</label><input id="alim" type="number" step="1" value="0">
       <label>Gains (Kp Ki Kd)</label>
       <div class="row">
-        <input id="kp" type="number" step="0.1" value="1.0">
+        <input id="kp" type="number" step="0.1" value="0.0">
         <input id="ki" type="number" step="0.01" value="0.0">
         <input id="kd" type="number" step="0.01" value="0.0">
       </div>
@@ -53,22 +55,63 @@
   <section>
     <h2>Télémétrie</h2>
     <div class="row">
-      <span id="angle" class="pill">angle: ?°</span>
-      <span id="u" class="pill">u: ?</span>
-      <span id="sat" class="pill">sat: ?</span>
+      <span id="angle" class="pill">angle: 0.00°</span>
+      <span id="u" class="pill">u: 0.00</span>
+      <span id="sat" class="pill">sat: non</span>
     </div>
     <pre id="telemetry" class="mono">{}</pre>
   </section>
 
-<script>
-async function getJSON(url){const r=await fetch(url); if(!r.ok) throw new Error(r.status); return r.json();}
-async function post(url,body){const r=await fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:body?JSON.stringify(body):null}); if(!r.ok) throw new Error(r.status); return r.json();}
+  <section>
+    <h2>Console</h2>
+    <div class="row">
+      <label><input id="debugToggle" type="checkbox" checked> Debug on</label>
+      <button onclick="clearConsole()">Clear</button>
+    </div>
+    <pre id="console" class="mono" style="max-height:260px"></pre>
+  </section>
 
-async function setMode(m){await post('/api/mode',{mode:m});}
+<script>
+function ts(){ const d=new Date(); return d.toLocaleTimeString(); }
+function logConsole(msg, level="INFO"){
+  const el=document.getElementById('console');
+  const dbg=document.getElementById('debugToggle').checked;
+  if(!dbg && level==="INFO") return;
+  el.textContent += `[${ts()}] ${level}: ${msg}\n`;
+  el.scrollTop = el.scrollHeight;
+}
+function clearConsole(){ document.getElementById('console').textContent=""; }
+
+async function getJSON(url){
+  try{
+    const r=await fetch(url);
+    const txt=await r.text();
+    if(!r.ok){ logConsole(`GET ${url} -> ${r.status} ${txt}`,"ERR"); throw new Error(r.status); }
+    try{ return JSON.parse(txt); } catch{ return {}; }
+  }catch(e){ logConsole(`GET ${url} failed: ${e.message}`,"ERR"); throw e; }
+}
+
+async function post(url, body){
+  try{
+    const r=await fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:body?JSON.stringify(body):null});
+    const txt=await r.text();
+    let j={}; try{ j=JSON.parse(txt); }catch{}
+    if(!r.ok || j.ok===false){
+      const m = (j && (j.error||j.msg)) ? (j.error||j.msg) : `status ${r.status}`;
+      logConsole(`POST ${url} -> ${m}`,"ERR");
+      throw new Error(m);
+    }
+    logConsole(j.msg ? j.msg : `POST ${url} OK`);
+    return j;
+  }catch(e){ logConsole(`POST ${url} failed: ${e.message}`,"ERR"); throw e; }
+}
+
+async function setMode(m){ await post('/api/mode',{mode:m}); }
+
 async function apply(){
   const sp=parseFloat(document.getElementById('sp').value||0);
-  const alim=parseFloat(document.getElementById('alim').value||15);
-  const kp=parseFloat(document.getElementById('kp').value||1);
+  const alim=parseFloat(document.getElementById('alim').value||0);
+  const kp=parseFloat(document.getElementById('kp').value||0);
   const ki=parseFloat(document.getElementById('ki').value||0);
   const kd=parseFloat(document.getElementById('kd').value||0);
   await post('/api/setpoint',{deg:sp});
@@ -79,20 +122,21 @@ async function apply(){
 async function poll(){
   try{
     const st=await getJSON('/api/state');
-    document.getElementById('mode').textContent = 'mode: '+st.mode;
-    document.getElementById('angle').textContent = 'angle: '+st.angle_deg.toFixed(2)+'°';
-    document.getElementById('u').textContent = 'u: '+st.u.toFixed(2);
-    document.getElementById('sat').textContent = 'sat: '+(st.sat?'oui':'non');
+    document.getElementById('mode').textContent = 'mode: '+(st.mode||'?');
+    document.getElementById('angle').textContent = 'angle: '+Number(st.angle_deg||0).toFixed(2)+'°';
+    document.getElementById('u').textContent = 'u: '+Number(st.u||0).toFixed(2);
+    document.getElementById('sat').textContent = 'sat: '+((st.sat===true)?'oui':'non');
     document.getElementById('telemetry').textContent = JSON.stringify(st,null,2);
-  }catch(e){/* ignore pour l'UI */}
-  setTimeout(poll, 150);
+  }catch(e){ /* déjà loggé */ }
+  setTimeout(poll, 200);
 }
 
 (async ()=>{
   try{
     const h=await getJSON('/api/health');
     document.getElementById('ver').textContent = 'version: '+(h.version||'?');
-  }catch(e){}
+    if(h.msg) logConsole(h.msg);
+  }catch(e){ /* déjà loggé */ }
   poll();
 })();
 </script>
