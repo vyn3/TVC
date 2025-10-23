@@ -20,8 +20,6 @@
     .axis-grid{display:flex;flex-wrap:wrap;gap:12px}
     .axis-card{border:1px solid var(--bd);border-radius:10px;padding:12px;min-width:240px;flex:1 1 280px;background:#fff}
     .axis-card .kv{grid-template-columns:150px 1fr}
-    .imu-rows{display:flex;flex-direction:column;gap:6px}
-    .imu-rows .row{justify-content:flex-start}
   </style>
 </head>
 <body>
@@ -52,19 +50,6 @@
             <input id="kd_x" type="number" step="0.01" value="0.0">
           </div>
         </div>
-      </div>
-      <div class="axis-card">
-        <h3>Axe Y</h3>
-        <div class="kv">
-          <label>Setpoint Y (deg)</label><input id="sp_y" type="number" step="1" value="0">
-          <label>Gains Y (Kp Ki Kd)</label>
-          <div class="row">
-            <input id="kp_y" type="number" step="0.1" value="0.0">
-            <input id="ki_y" type="number" step="0.01" value="0.0">
-            <input id="kd_y" type="number" step="0.01" value="0.0">
-          </div>
-        </div>
-      </div>
     </div>
     <div class="kv" style="margin-top:12px">
       <label>Angle limit (deg)</label><input id="alim" type="number" step="1" value="0">
@@ -94,28 +79,6 @@
           <span id="angle_y" class="pill">angle Y: 0.00°</span>
           <span id="u_y" class="pill">u Y: 0.00</span>
           <span id="sat_y" class="pill">sat Y: non</span>
-        </div>
-      </div>
-      <div class="axis-card">
-        <h3>IMU</h3>
-        <div class="imu-rows">
-          <div class="row">
-            <span id="imu_angle_x" class="pill">IMU angle X: 0.00°</span>
-            <span id="imu_angle_y" class="pill">IMU angle Y: 0.00°</span>
-          </div>
-          <div class="row">
-            <span id="imu_gyro_x" class="pill">IMU gyro X: 0.00°/s</span>
-            <span id="imu_gyro_y" class="pill">IMU gyro Y: 0.00°/s</span>
-            <span id="imu_gyro_z" class="pill">IMU gyro Z: 0.00°/s</span>
-          </div>
-          <div class="row">
-            <span id="imu_accel_x" class="pill">IMU accel X: 0.00 g</span>
-            <span id="imu_accel_y" class="pill">IMU accel Y: 0.00 g</span>
-            <span id="imu_accel_z" class="pill">IMU accel Z: 0.00 g</span>
-          </div>
-          <div class="row">
-            <span id="imu_temp" class="pill">IMU temp: 0.00 °C</span>
-          </div>
         </div>
       </div>
     </div>
@@ -203,38 +166,6 @@ async function poll(){
     const axes=st.axes||{};
     const axX=axes.x||{};
     const axY=axes.y||{};
-    const imu=st.imu||{};
-    const imuAng=imu.angle_deg||{};
-    const imuGyro=imu.gyro_dps||{};
-    const imuAccel=imu.accel_g||{};
-    document.getElementById('angle_x').textContent = 'angle X: '+Number(axX.angle_deg||0).toFixed(2)+'°';
-    document.getElementById('u_x').textContent = 'u X: '+Number(axX.u||0).toFixed(2);
-    document.getElementById('sat_x').textContent = 'sat X: '+((axX.sat===true)?'oui':'non');
-    document.getElementById('angle_y').textContent = 'angle Y: '+Number(axY.angle_deg||0).toFixed(2)+'°';
-    document.getElementById('u_y').textContent = 'u Y: '+Number(axY.u||0).toFixed(2);
-    document.getElementById('sat_y').textContent = 'sat Y: '+((axY.sat===true)?'oui':'non');
-    document.getElementById('imu_angle_x').textContent = 'IMU angle X: '+Number(imuAng.x||0).toFixed(2)+'°';
-    document.getElementById('imu_angle_y').textContent = 'IMU angle Y: '+Number(imuAng.y||0).toFixed(2)+'°';
-    document.getElementById('imu_gyro_x').textContent = 'IMU gyro X: '+Number(imuGyro.x||0).toFixed(2)+'°/s';
-    document.getElementById('imu_gyro_y').textContent = 'IMU gyro Y: '+Number(imuGyro.y||0).toFixed(2)+'°/s';
-    document.getElementById('imu_gyro_z').textContent = 'IMU gyro Z: '+Number(imuGyro.z||0).toFixed(2)+'°/s';
-    document.getElementById('imu_accel_x').textContent = 'IMU accel X: '+Number(imuAccel.x||0).toFixed(2)+' g';
-    document.getElementById('imu_accel_y').textContent = 'IMU accel Y: '+Number(imuAccel.y||0).toFixed(2)+' g';
-    document.getElementById('imu_accel_z').textContent = 'IMU accel Z: '+Number(imuAccel.z||0).toFixed(2)+' g';
-    document.getElementById('imu_temp').textContent = 'IMU temp: '+Number(imu.temp_c||0).toFixed(2)+' °C';
-    syncInput('sp_x', axX.setpoint_deg);
-    syncInput('sp_y', axY.setpoint_deg);
-    syncInput('kp_x', axX.gains?.kp);
-    syncInput('ki_x', axX.gains?.ki);
-    syncInput('kd_x', axX.gains?.kd);
-    syncInput('kp_y', axY.gains?.kp);
-    syncInput('ki_y', axY.gains?.ki);
-    syncInput('kd_y', axY.gains?.kd);
-    syncInput('alim', st.angle_limit_deg);
-    document.getElementById('telemetry').textContent = JSON.stringify(st,null,2);
-  }catch(e){ /* déjà loggé */ }
-  setTimeout(poll, 200);
-}
 
 (async ()=>{
   try{

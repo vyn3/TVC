@@ -27,13 +27,6 @@ state = {
     "origin_deg": 0.0,
     "gyro_dps": 0.0,
     "axes": {axis: _axis_state() for axis in AXES},
-    "imu": {
-        "angle_deg": {"x": 0.0, "y": 0.0},
-        "gyro_dps": {"x": 0.0, "y": 0.0, "z": 0.0},
-        "accel_g": {"x": 0.0, "y": 0.0, "z": 0.0},
-        "temp_c": 0.0,
-    },
-}
 
 
 def _normalize_axis(payload):
