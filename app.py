@@ -18,6 +18,15 @@ def _axis_state():
     }
 
 
+def _imu_state():
+    return {
+        "angle_deg": {"x": 0.0, "y": 0.0},
+        "gyro_dps": {"x": 0.0, "y": 0.0, "z": 0.0},
+        "accel_g": {"x": 0.0, "y": 0.0, "z": 0.0},
+        "temp_c": 0.0,
+    }
+
+
 state = {
     "mode": "manuel",  # "manuel" | "auto_tvc" | "demo"
     "angle_limit_deg": 0.0,
@@ -25,6 +34,7 @@ state = {
     "origin_deg": 0.0,
     "gyro_dps": 0.0,
     "axes": {axis: _axis_state() for axis in AXES},
+    "imu": _imu_state(),
 }
 
 
@@ -151,6 +161,54 @@ def api_gains():
             f"Kd={gains_ref['kd']}"
         ),
     )
+
+
+def _coerce_float(value):
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        raise ValueError("valeur numérique requise")
+
+
+@app.post("/api/imu/update")
+def api_imu_update():
+    payload = request.json or {}
+    imu = state.setdefault("imu", _imu_state())
+
+    try:
+        angle_payload = payload.get("angle_deg")
+        if angle_payload is not None:
+            if not isinstance(angle_payload, dict):
+                raise ValueError("angle_deg invalide")
+            for axis in ("x", "y"):
+                if axis in angle_payload:
+                    imu["angle_deg"][axis] = _coerce_float(angle_payload[axis])
+
+        gyro_payload = payload.get("gyro_dps")
+        if gyro_payload is not None:
+            if not isinstance(gyro_payload, dict):
+                raise ValueError("gyro_dps invalide")
+            for axis in ("x", "y", "z"):
+                if axis in gyro_payload:
+                    imu["gyro_dps"][axis] = _coerce_float(gyro_payload[axis])
+
+        accel_payload = payload.get("accel_g")
+        if accel_payload is not None:
+            if not isinstance(accel_payload, dict):
+                raise ValueError("accel_g invalide")
+            for axis in ("x", "y", "z"):
+                if axis in accel_payload:
+                    imu["accel_g"][axis] = _coerce_float(accel_payload[axis])
+
+        if "temp_c" in payload:
+            imu["temp_c"] = _coerce_float(payload["temp_c"])
+    except ValueError as exc:
+        return (
+            jsonify(ok=False, error="imu invalide", msg=str(exc)),
+            400,
+        )
+
+    return jsonify(ok=True, imu=imu, msg="IMU mise à jour")
 
 if __name__ == "__main__":
     # Accès réseau local ; port 8000 par convention
