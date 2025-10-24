@@ -47,37 +47,73 @@ state = {
 lock = threading.Lock()
 
 # === Thread UART : lit NDJSON ligne par ligne, met à jour state["imu"] ===
+# --- Remplacer entièrement uart_reader() par ceci ---
 def uart_reader():
+    import serial, json, time
+    def fnum(v):
+        try:
+            return float(v)
+        except Exception:
+            return None
+
     while True:
         try:
             with serial.Serial(UART_PORT, UART_BAUD, timeout=1) as ser:
+                buf = b""
                 while True:
                     line = ser.readline()
                     if not line:
                         continue
+                    s = line.decode("utf-8", errors="ignore").strip()
+                    if not s or s[0] != "{":
+                        # ignorer bruit ou bannières non-JSON
+                        continue
                     try:
-                        obj = json.loads(line.decode("utf-8", errors="ignore").strip())
+                        obj = json.loads(s)
                     except json.JSONDecodeError:
+                        # ligne tronquée: on ignore
                         continue
 
-                    # ESP32 envoie : {"t_ms":..,"accel":{"x":..},"gyro":{"x":..},"temp":..}
-                    accel = obj.get("accel") or {}
-                    gyro  = obj.get("gyro")  or {}
-                    temp  = obj.get("temp", None)
+                    # accepter plusieurs schémas
+                    accel = obj.get("accel") or obj.get("accel_g") or {}
+                    gyro  = obj.get("gyro")  or obj.get("gyro_dps") or {}
+                    temp  = obj.get("temp", obj.get("temp_c", None))
                     t_ms  = obj.get("t_ms", 0)
+
+                    ax = fnum(accel.get("x"))
+                    ay = fnum(accel.get("y"))
+                    az = fnum(accel.get("z"))
+                    gx = fnum(gyro.get("x"))
+                    gy = fnum(gyro.get("y"))
+                    gz = fnum(gyro.get("z"))
+
+                    # critère minimal: au moins accel OU gyro correct
+                    has_acc = (ax is not None and ay is not None and az is not None)
+                    has_gyr = (gx is not None and gy is not None and gz is not None)
+
+                    if not (has_acc or has_gyr):
+                        # ignorer ligne non-mesure (status, vide, etc.)
+                        continue
 
                     with lock:
                         imu = state["imu"]
-                        # map vers notre structure
-                        for k in ("x","y","z"):
-                            if k in accel: imu["accel_g"][k] = float(accel[k])
-                            if k in gyro:  imu["gyro_dps"][k] = float(gyro[k])
+                        if has_acc:
+                            imu["accel_g"]["x"] = ax
+                            imu["accel_g"]["y"] = ay
+                            imu["accel_g"]["z"] = az
+                        if has_gyr:
+                            imu["gyro_dps"]["x"] = gx
+                            imu["gyro_dps"]["y"] = gy
+                            imu["gyro_dps"]["z"] = gz
                         if temp is not None:
-                            imu["temp_c"] = float(temp)
-                        if isinstance(t_ms, (int, float)):
+                            ft = fnum(temp)
+                            if ft is not None:
+                                imu["temp_c"] = ft
+                        try:
                             imu["t_ms"] = int(t_ms)
-        except Exception as e:
-            # Port indispo / débranché : on retente
+                        except Exception:
+                            pass
+        except Exception:
             time.sleep(1)
 
 # --- Utilitaires JSON ---
