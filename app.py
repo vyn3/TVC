@@ -6,6 +6,8 @@ app = Flask(__name__, static_folder="static")
 
 AXES = ("x", "y")
 
+UART_PORT = "/dev/ttyUSB0"
+UART_BAUD = 115200
 
 # --- État système (aucune simulation) ---
 def _axis_state():

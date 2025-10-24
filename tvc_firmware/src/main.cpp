@@ -7,7 +7,7 @@ constexpr uint8_t  kMpuAddress = 0x68;     // AD0 -> GND = 0x68
 // Garde Wire.begin() par défaut: ESP32 => SDA=21, SCL=22
 
 // Activer en 1 si tu veux aussi envoyer vers la Pi sur UART2 (GPIO17 TX2 -> RX Pi, GPIO16 RX2 <- TX Pi)
-#define USE_UART2 0
+#define USE_UART2 1
 
 #if USE_UART2
   #include <HardwareSerial.h>
