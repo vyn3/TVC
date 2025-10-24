@@ -96,25 +96,26 @@ void setup() {
   }
 }
 
+void emit_json_line(uint32_t t_ms,
+                    float ax_g, float ay_g, float az_g,
+                    float gx_dps, float gy_dps, float gz_dps,
+                    float temp_c) {
+  Serial.print("{\"t_ms\":");  Serial.print(t_ms);
+  Serial.print(",\"accel\":{\"x\":"); Serial.print(ax_g, 4);
+  Serial.print(",\"y\":");             Serial.print(ay_g, 4);
+  Serial.print(",\"z\":");             Serial.print(az_g, 4);
+  Serial.print("},\"gyro\":{\"x\":");  Serial.print(gx_dps, 3);
+  Serial.print(",\"y\":");             Serial.print(gy_dps, 3);
+  Serial.print(",\"z\":");             Serial.print(gz_dps, 3);
+  Serial.print("},\"temp\":");         Serial.print(temp_c, 2);
+  Serial.println("}");
+}
+
 void loop() {
   float ax, ay, az, gx, gy, gz, temp;
   if (readImuSample(ax, ay, az, gx, gy, gz, temp)) {
-    Serial.print("ACC[g]=");
-    Serial.print(ax, 2);
-    Serial.print(", ");
-    Serial.print(ay, 2);
-    Serial.print(", ");
-    Serial.print(az, 2);
-    Serial.print(" | GYRO[dps]=");
-    Serial.print(gx, 1);
-    Serial.print(", ");
-    Serial.print(gy, 1);
-    Serial.print(", ");
-    Serial.print(gz, 1);
-    Serial.print(" | TEMP[C]=");
-    Serial.println(temp, 1);
-  } else {
-    Serial.println("[WARN] Unable to read IMU data");
+    const uint32_t t = millis();
+    emit_json_line(t, ax, ay, az, gx, gy, gz, temp);
   }
-  delay(250);
+  delay(10); // ~100 Hz
 }
