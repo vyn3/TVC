@@ -20,6 +20,7 @@
     .axis-grid{display:flex;flex-wrap:wrap;gap:12px}
     .axis-card{border:1px solid var(--bd);border-radius:10px;padding:12px;min-width:240px;flex:1 1 280px;background:#fff}
     .axis-card .kv{grid-template-columns:150px 1fr}
+    #serialLog{max-height:200px}
   </style>
 </head>
 <body>
@@ -129,6 +130,11 @@
   </section>
 
   <section>
+    <h2>Moniteur série</h2>
+    <pre id="serialLog" class="mono"></pre>
+  </section>
+
+  <section>
     <h2>Console</h2>
     <div class="row">
       <label><input id="debugToggle" type="checkbox" checked> Debug on</label>
@@ -140,6 +146,7 @@
 <script>
 let lastImuSignature=null;
 let imuWarned=false;
+let serialMonitorCache="";
 
 function ts(){ const d=new Date(); return d.toLocaleTimeString(); }
 function logConsole(msg, level="INFO"){
@@ -197,51 +204,6 @@ function asFiniteNumber(v){
   return Number.isFinite(n)?n:null;
 }
 
-// Helpers IMU
-function isVec3(a,b,c){ return a!==null && b!==null && c!==null; }
-
-function buildImuValues(st){
-  const imu = st?.imu || {};
-  const accel = imu.accel_g || imu.accel || {};
-  const gyro  = imu.gyro_dps || imu.gyro || {};
-  const angles= imu.angle_deg || {};
-
-  const ax = asFiniteNumber(accel.x);
-  const ay = asFiniteNumber(accel.y);
-  const az = asFiniteNumber(accel.z);
-
-  const gx = asFiniteNumber(gyro.x);
-  const gy = asFiniteNumber(gyro.y);
-  const gz = asFiniteNumber(gyro.z);
-
-  // angles: backend si dispo, sinon fallback statique à partir de l'accéléro
-  let angleX = asFiniteNumber(angles.x);
-  let angleY = asFiniteNumber(angles.y);
-  if ((angleX===null || angleY===null) && isVec3(ax,ay,az)) {
-    angleX = Math.atan2(ay, az) * 180 / Math.PI;
-    angleY = Math.atan2(-ax, Math.hypot(ay, az)) * 180 / Math.PI;
-  }
-
-  const tempC = asFiniteNumber(imu.temp_c ?? imu.temp);
-
-  const imuValues = {
-    angleX: (angleX ?? 0),
-    angleY: (angleY ?? 0),
-    gyroX:  (gx ?? 0),
-    gyroY:  (gy ?? 0),
-    gyroZ:  (gz ?? 0),
-    accelX: (ax ?? 0),
-    accelY: (ay ?? 0),
-    accelZ: (az ?? 0),
-    tempC:  (tempC ?? 0),
-  };
-
-  // valid si accel complet OU gyro complet
-  const imuValid = isVec3(ax,ay,az) || isVec3(gx,gy,gz);
-
-  return { imuValues, imuValid };
-}
-
 async function apply(){
   const spx=num('sp_x');
   const spy=num('sp_y');
@@ -278,18 +240,46 @@ async function poll(){
     syncInput('kd_y', axY.gains?.kd);
     syncInput('alim', st.angle_limit_deg);
 
-    // IMU
-    const { imuValues, imuValid } = buildImuValues(st);
+    const imu = st.imu;
+    const angleX = asFiniteNumber(imu?.angle_deg?.x);
+    const angleY = asFiniteNumber(imu?.angle_deg?.y);
+    const gyroX = asFiniteNumber(imu?.gyro_dps?.x);
+    const gyroY = asFiniteNumber(imu?.gyro_dps?.y);
+    const gyroZ = asFiniteNumber(imu?.gyro_dps?.z);
+    const accelX = asFiniteNumber(imu?.accel_g?.x);
+    const accelY = asFiniteNumber(imu?.accel_g?.y);
+    const accelZ = asFiniteNumber(imu?.accel_g?.z);
+    const tempC = asFiniteNumber(imu?.temp_c);
+
+    const imuValid = (
+      imu && typeof imu === 'object' &&
+      angleX!==null && angleY!==null &&
+      gyroX!==null && gyroY!==null && gyroZ!==null &&
+      accelX!==null && accelY!==null && accelZ!==null &&
+      tempC!==null
+    );
+
+    const imuValues = {
+      angleX: (angleX??0),
+      angleY: (angleY??0),
+      gyroX: (gyroX??0),
+      gyroY: (gyroY??0),
+      gyroZ: (gyroZ??0),
+      accelX: (accelX??0),
+      accelY: (accelY??0),
+      accelZ: (accelZ??0),
+      tempC: (tempC??0),
+    };
 
     document.getElementById('imu_angle_x').textContent = 'angle X: '+imuValues.angleX.toFixed(2)+'°';
     document.getElementById('imu_angle_y').textContent = 'angle Y: '+imuValues.angleY.toFixed(2)+'°';
-    document.getElementById('imu_gyro_x').textContent  = 'gyro X: '+imuValues.gyroX.toFixed(2)+'°/s';
-    document.getElementById('imu_gyro_y').textContent  = 'gyro Y: '+imuValues.gyroY.toFixed(2)+'°/s';
-    document.getElementById('imu_gyro_z').textContent  = 'gyro Z: '+imuValues.gyroZ.toFixed(2)+'°/s';
+    document.getElementById('imu_gyro_x').textContent = 'gyro X: '+imuValues.gyroX.toFixed(2)+'°/s';
+    document.getElementById('imu_gyro_y').textContent = 'gyro Y: '+imuValues.gyroY.toFixed(2)+'°/s';
+    document.getElementById('imu_gyro_z').textContent = 'gyro Z: '+imuValues.gyroZ.toFixed(2)+'°/s';
     document.getElementById('imu_accel_x').textContent = 'accel X: '+imuValues.accelX.toFixed(2)+' g';
     document.getElementById('imu_accel_y').textContent = 'accel Y: '+imuValues.accelY.toFixed(2)+' g';
     document.getElementById('imu_accel_z').textContent = 'accel Z: '+imuValues.accelZ.toFixed(2)+' g';
-    document.getElementById('imu_temp').textContent    = 'temp: '+imuValues.tempC.toFixed(2)+' °C';
+    document.getElementById('imu_temp').textContent = 'temp: '+imuValues.tempC.toFixed(2)+' °C';
 
     if(!imuValid){
       if(!imuWarned){
@@ -311,6 +301,23 @@ async function poll(){
   setTimeout(poll, 200);
 }
 
+async function pollSerial(){
+  try{
+    const data = await getJSON('/api/debug/uart');
+    const lines = Array.isArray(data.lines) ? data.lines : [];
+    const joined = lines.join('\n');
+    if(joined!==serialMonitorCache){
+      const el=document.getElementById('serialLog');
+      if(el){
+        el.textContent = joined;
+        el.scrollTop = el.scrollHeight;
+      }
+      serialMonitorCache = joined;
+    }
+  }catch(e){ /* déjà loggé */ }
+  setTimeout(pollSerial, 500);
+}
+
 (async ()=>{
   try{
     const h=await getJSON('/api/health');
@@ -318,6 +325,7 @@ async function poll(){
     if(h.msg) logConsole(h.msg);
   }catch(e){ /* déjà loggé */ }
   poll();
+  pollSerial();
 })();
 </script>
 </body>
