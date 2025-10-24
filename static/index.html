@@ -20,6 +20,7 @@
     .axis-grid{display:flex;flex-wrap:wrap;gap:12px}
     .axis-card{border:1px solid var(--bd);border-radius:10px;padding:12px;min-width:240px;flex:1 1 280px;background:#fff}
     .axis-card .kv{grid-template-columns:150px 1fr}
+    #serialLog{max-height:200px}
   </style>
 </head>
 <body>
@@ -99,6 +100,41 @@
   </section>
 
   <section>
+    <h2>IMU</h2>
+    <div class="axis-grid">
+      <div class="axis-card">
+        <h3>Angles (°)</h3>
+        <div class="row">
+          <span id="imu_angle_x" class="pill">angle X: 0.00°</span>
+          <span id="imu_angle_y" class="pill">angle Y: 0.00°</span>
+        </div>
+      </div>
+      <div class="axis-card">
+        <h3>Gyros (°/s)</h3>
+        <div class="row">
+          <span id="imu_gyro_x" class="pill">gyro X: 0.00°/s</span>
+          <span id="imu_gyro_y" class="pill">gyro Y: 0.00°/s</span>
+          <span id="imu_gyro_z" class="pill">gyro Z: 0.00°/s</span>
+        </div>
+      </div>
+      <div class="axis-card">
+        <h3>Accéléros (g)</h3>
+        <div class="row">
+          <span id="imu_accel_x" class="pill">accel X: 0.00 g</span>
+          <span id="imu_accel_y" class="pill">accel Y: 0.00 g</span>
+          <span id="imu_accel_z" class="pill">accel Z: 0.00 g</span>
+          <span id="imu_temp" class="pill">temp: 0.00 °C</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Moniteur série</h2>
+    <pre id="serialLog" class="mono"></pre>
+  </section>
+
+  <section>
     <h2>Console</h2>
     <div class="row">
       <label><input id="debugToggle" type="checkbox" checked> Debug on</label>
@@ -108,6 +144,10 @@
   </section>
 
 <script>
+let lastImuSignature=null;
+let imuWarned=false;
+let serialMonitorCache="";
+
 function ts(){ const d=new Date(); return d.toLocaleTimeString(); }
 function logConsole(msg, level="INFO"){
   const el=document.getElementById('console');
@@ -159,6 +199,11 @@ function syncInput(id, value){
   }
 }
 
+function asFiniteNumber(v){
+  const n=Number(v);
+  return Number.isFinite(n)?n:null;
+}
+
 async function apply(){
   const spx=num('sp_x');
   const spy=num('sp_y');
@@ -194,9 +239,83 @@ async function poll(){
     syncInput('ki_y', axY.gains?.ki);
     syncInput('kd_y', axY.gains?.kd);
     syncInput('alim', st.angle_limit_deg);
+
+    const imu = st.imu;
+    const angleX = asFiniteNumber(imu?.angle_deg?.x);
+    const angleY = asFiniteNumber(imu?.angle_deg?.y);
+    const gyroX = asFiniteNumber(imu?.gyro_dps?.x);
+    const gyroY = asFiniteNumber(imu?.gyro_dps?.y);
+    const gyroZ = asFiniteNumber(imu?.gyro_dps?.z);
+    const accelX = asFiniteNumber(imu?.accel_g?.x);
+    const accelY = asFiniteNumber(imu?.accel_g?.y);
+    const accelZ = asFiniteNumber(imu?.accel_g?.z);
+    const tempC = asFiniteNumber(imu?.temp_c);
+
+    const imuValid = (
+      imu && typeof imu === 'object' &&
+      angleX!==null && angleY!==null &&
+      gyroX!==null && gyroY!==null && gyroZ!==null &&
+      accelX!==null && accelY!==null && accelZ!==null &&
+      tempC!==null
+    );
+
+    const imuValues = {
+      angleX: (angleX??0),
+      angleY: (angleY??0),
+      gyroX: (gyroX??0),
+      gyroY: (gyroY??0),
+      gyroZ: (gyroZ??0),
+      accelX: (accelX??0),
+      accelY: (accelY??0),
+      accelZ: (accelZ??0),
+      tempC: (tempC??0),
+    };
+
+    document.getElementById('imu_angle_x').textContent = 'angle X: '+imuValues.angleX.toFixed(2)+'°';
+    document.getElementById('imu_angle_y').textContent = 'angle Y: '+imuValues.angleY.toFixed(2)+'°';
+    document.getElementById('imu_gyro_x').textContent = 'gyro X: '+imuValues.gyroX.toFixed(2)+'°/s';
+    document.getElementById('imu_gyro_y').textContent = 'gyro Y: '+imuValues.gyroY.toFixed(2)+'°/s';
+    document.getElementById('imu_gyro_z').textContent = 'gyro Z: '+imuValues.gyroZ.toFixed(2)+'°/s';
+    document.getElementById('imu_accel_x').textContent = 'accel X: '+imuValues.accelX.toFixed(2)+' g';
+    document.getElementById('imu_accel_y').textContent = 'accel Y: '+imuValues.accelY.toFixed(2)+' g';
+    document.getElementById('imu_accel_z').textContent = 'accel Z: '+imuValues.accelZ.toFixed(2)+' g';
+    document.getElementById('imu_temp').textContent = 'temp: '+imuValues.tempC.toFixed(2)+' °C';
+
+    if(!imuValid){
+      if(!imuWarned){
+        logConsole('[WARN] IMU data invalid','WARN');
+        imuWarned=true;
+      }
+      lastImuSignature=null;
+    }else{
+      const signature = JSON.stringify(imuValues);
+      if(signature!==lastImuSignature){
+        logConsole('[INFO] IMU updated: angle_x='+imuValues.angleX.toFixed(2)+', angle_y='+imuValues.angleY.toFixed(2)+', ax='+imuValues.accelX.toFixed(2)+', ay='+imuValues.accelY.toFixed(2)+', az='+imuValues.accelZ.toFixed(2)+', gx='+imuValues.gyroX.toFixed(2)+', gy='+imuValues.gyroY.toFixed(2)+', gz='+imuValues.gyroZ.toFixed(2)+', temp='+imuValues.tempC.toFixed(2));
+        lastImuSignature = signature;
+      }
+      imuWarned=false;
+    }
+
     document.getElementById('telemetry').textContent = JSON.stringify(st,null,2);
   }catch(e){ /* déjà loggé */ }
   setTimeout(poll, 200);
+}
+
+async function pollSerial(){
+  try{
+    const data = await getJSON('/api/debug/uart');
+    const lines = Array.isArray(data.lines) ? data.lines : [];
+    const joined = lines.join('\n');
+    if(joined!==serialMonitorCache){
+      const el=document.getElementById('serialLog');
+      if(el){
+        el.textContent = joined;
+        el.scrollTop = el.scrollHeight;
+      }
+      serialMonitorCache = joined;
+    }
+  }catch(e){ /* déjà loggé */ }
+  setTimeout(pollSerial, 500);
 }
 
 (async ()=>{
@@ -206,6 +325,7 @@ async function poll(){
     if(h.msg) logConsole(h.msg);
   }catch(e){ /* déjà loggé */ }
   poll();
+  pollSerial();
 })();
 </script>
 </body>
