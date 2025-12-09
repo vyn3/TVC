@@ -14,12 +14,14 @@
     input[type=number]{width:110px}
     pre{background:var(--bg);padding:12px;border-radius:8px;overflow:auto}
     .mono{font-family:ui-monospace,Consolas,monospace}
-    .pill{padding:4px 8px;border-radius:999px;border:1px solid #ccc}
+    .pill{padding:4px 8px;border-radius:999px;border:1px solid #ccc;background:#fff}
     button{cursor:pointer}
     h3{margin:0 0 8px}
     .axis-grid{display:flex;flex-wrap:wrap;gap:12px}
     .axis-card{border:1px solid var(--bd);border-radius:10px;padding:12px;min-width:240px;flex:1 1 280px;background:#fff}
     .axis-card .kv{grid-template-columns:150px 1fr}
+    #esp_status.ok{background:#d4f8d4;border-color:#8ac58a}
+    #esp_status.ko{background:#f8d4d4;border-color:#c58a8a}
   </style>
 </head>
 <body>
@@ -33,6 +35,7 @@
       <button onclick="setMode('demo')">Demo</button>
       <span id="mode" class="pill">mode: ?</span>
       <span id="ver" class="pill">version: ?</span>
+      <span id="esp_status" class="pill">ESP: inconnu</span>
     </div>
   </section>
 
@@ -95,7 +98,7 @@
         </div>
       </div>
     </div>
-    <pre id="telemetry" class="mono">{}</pre>
+    <!-- plus de dump JSON ici -->
   </section>
 
   <section>
@@ -129,6 +132,11 @@
   </section>
 
   <section>
+    <h2>Moniteur série (ESP)</h2>
+    <pre id="serial_monitor" class="mono" style="max-height:260px"></pre>
+  </section>
+
+  <section>
     <h2>Console</h2>
     <div class="row">
       <label><input id="debugToggle" type="checkbox" checked> Debug on</label>
@@ -140,6 +148,7 @@
 <script>
 let lastImuSignature=null;
 let imuWarned=false;
+let lastSerialSignature=null;
 
 function ts(){ const d=new Date(); return d.toLocaleTimeString(); }
 function logConsole(msg, level="INFO"){
@@ -153,7 +162,7 @@ function clearConsole(){ document.getElementById('console').textContent=""; }
 
 async function getJSON(url){
   try{
-    const r=await fetch(url);
+    const r=await fetch(url,{cache:'no-store'});
     const txt=await r.text();
     if(!r.ok){ logConsole(`GET ${url} -> ${r.status} ${txt}`,"ERR"); throw new Error(r.status); }
     try{ return JSON.parse(txt); } catch{ return {}; }
@@ -162,7 +171,11 @@ async function getJSON(url){
 
 async function post(url, body){
   try{
-    const r=await fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:body?JSON.stringify(body):null});
+    const r=await fetch(url,{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:body?JSON.stringify(body):null
+    });
     const txt=await r.text();
     let j={}; try{ j=JSON.parse(txt); }catch{}
     if(!r.ok || j.ok===false){
@@ -170,12 +183,19 @@ async function post(url, body){
       logConsole(`POST ${url} -> ${m}`,"ERR");
       throw new Error(m);
     }
-    logConsole(j.msg ? j.msg : `POST ${url} OK`);
+    if(j.msg) logConsole(j.msg);
+    else logConsole(`POST ${url} OK`);
     return j;
-  }catch(e){ logConsole(`POST ${url} failed: ${e.message}`,"ERR"); throw e; }
+  }catch(e){
+    logConsole(`POST ${url} failed: ${e.message}`,"ERR");
+    throw e;
+  }
 }
 
-async function setMode(m){ await post('/api/mode',{mode:m}); }
+async function setMode(m){
+  await post('/api/mode',{mode:m});
+  document.getElementById('mode').textContent = 'mode: '+m;
+}
 
 function num(id){
   const v=parseFloat(document.getElementById(id).value);
@@ -213,16 +233,31 @@ async function apply(){
 async function poll(){
   try{
     const st=await getJSON('/api/state');
+
+    // --- mode / version ---
     document.getElementById('mode').textContent = 'mode: '+(st.mode||'?');
+    const verEl=document.getElementById('ver');
+    if(st.version) verEl.textContent='version: '+st.version;
+
+    // --- badge ESP ---
+    const espStatusEl=document.getElementById('esp_status');
+    const serial = st.serial || {};
+    const espConnected = !!serial.connected;
+    espStatusEl.textContent = espConnected ? 'ESP: connecté' : 'ESP: déconnecté';
+    espStatusEl.classList.toggle('ok', espConnected);
+    espStatusEl.classList.toggle('ko', !espConnected);
+
+    // --- télémétrie axes ---
     const axes=st.axes||{};
     const axX=axes.x||{};
     const axY=axes.y||{};
     document.getElementById('angle_x').textContent = 'angle X: '+Number(axX.angle_deg||0).toFixed(2)+'°';
-    document.getElementById('u_x').textContent = 'u X: '+Number(axX.u||0).toFixed(2);
-    document.getElementById('sat_x').textContent = 'sat X: '+((axX.sat===true)?'oui':'non');
+    document.getElementById('u_x').textContent     = 'u X: '+Number(axX.u||0).toFixed(2);
+    document.getElementById('sat_x').textContent   = 'sat X: '+((axX.sat===true)?'oui':'non');
     document.getElementById('angle_y').textContent = 'angle Y: '+Number(axY.angle_deg||0).toFixed(2)+'°';
-    document.getElementById('u_y').textContent = 'u Y: '+Number(axY.u||0).toFixed(2);
-    document.getElementById('sat_y').textContent = 'sat Y: '+((axY.sat===true)?'oui':'non');
+    document.getElementById('u_y').textContent     = 'u Y: '+Number(axY.u||0).toFixed(2);
+    document.getElementById('sat_y').textContent   = 'sat Y: '+((axY.sat===true)?'oui':'non');
+
     syncInput('sp_x', axX.setpoint_deg);
     syncInput('sp_y', axY.setpoint_deg);
     syncInput('kp_x', axX.gains?.kp);
@@ -233,46 +268,43 @@ async function poll(){
     syncInput('kd_y', axY.gains?.kd);
     syncInput('alim', st.angle_limit_deg);
 
-    const imu = st.imu;
-    const angleX = asFiniteNumber(imu?.angle_deg?.x);
-    const angleY = asFiniteNumber(imu?.angle_deg?.y);
-    const gyroX = asFiniteNumber(imu?.gyro_dps?.x);
-    const gyroY = asFiniteNumber(imu?.gyro_dps?.y);
-    const gyroZ = asFiniteNumber(imu?.gyro_dps?.z);
-    const accelX = asFiniteNumber(imu?.accel_g?.x);
-    const accelY = asFiniteNumber(imu?.accel_g?.y);
-    const accelZ = asFiniteNumber(imu?.accel_g?.z);
-    const tempC = asFiniteNumber(imu?.temp_c);
+    // --- IMU ---
+    const imu = st.imu || {};
+    const angleX = asFiniteNumber(imu.angle_deg?.x);
+    const angleY = asFiniteNumber(imu.angle_deg?.y);
+    const gyroX  = asFiniteNumber(imu.gyro_dps?.x);
+    const gyroY  = asFiniteNumber(imu.gyro_dps?.y);
+    const gyroZ  = asFiniteNumber(imu.gyro_dps?.z);
+    const accelX = asFiniteNumber(imu.accel_g?.x);
+    const accelY = asFiniteNumber(imu.accel_g?.y);
+    const accelZ = asFiniteNumber(imu.accel_g?.z);
+    const tempC  = asFiniteNumber(imu.temp_c);
 
-    const imuValid = (
-      imu && typeof imu === 'object' &&
-      angleX!==null && angleY!==null &&
-      gyroX!==null && gyroY!==null && gyroZ!==null &&
-      accelX!==null && accelY!==null && accelZ!==null &&
-      tempC!==null
-    );
+    const imuValid =
+      ((accelX!==null && accelY!==null && accelZ!==null) ||
+       (gyroX!==null &&  gyroY!==null &&  gyroZ!==null));
 
     const imuValues = {
-      angleX: (angleX??0),
-      angleY: (angleY??0),
-      gyroX: (gyroX??0),
-      gyroY: (gyroY??0),
-      gyroZ: (gyroZ??0),
-      accelX: (accelX??0),
-      accelY: (accelY??0),
-      accelZ: (accelZ??0),
-      tempC: (tempC??0),
+      angleX: (angleX ?? 0),
+      angleY: (angleY ?? 0),
+      gyroX:  (gyroX  ?? 0),
+      gyroY:  (gyroY  ?? 0),
+      gyroZ:  (gyroZ  ?? 0),
+      accelX: (accelX ?? 0),
+      accelY: (accelY ?? 0),
+      accelZ: (accelZ ?? 0),
+      tempC:  (tempC  ?? 0),
     };
 
     document.getElementById('imu_angle_x').textContent = 'angle X: '+imuValues.angleX.toFixed(2)+'°';
     document.getElementById('imu_angle_y').textContent = 'angle Y: '+imuValues.angleY.toFixed(2)+'°';
-    document.getElementById('imu_gyro_x').textContent = 'gyro X: '+imuValues.gyroX.toFixed(2)+'°/s';
-    document.getElementById('imu_gyro_y').textContent = 'gyro Y: '+imuValues.gyroY.toFixed(2)+'°/s';
-    document.getElementById('imu_gyro_z').textContent = 'gyro Z: '+imuValues.gyroZ.toFixed(2)+'°/s';
+    document.getElementById('imu_gyro_x').textContent  = 'gyro X: '+imuValues.gyroX.toFixed(2)+'°/s';
+    document.getElementById('imu_gyro_y').textContent  = 'gyro Y: '+imuValues.gyroY.toFixed(2)+'°/s';
+    document.getElementById('imu_gyro_z').textContent  = 'gyro Z: '+imuValues.gyroZ.toFixed(2)+'°/s';
     document.getElementById('imu_accel_x').textContent = 'accel X: '+imuValues.accelX.toFixed(2)+' g';
     document.getElementById('imu_accel_y').textContent = 'accel Y: '+imuValues.accelY.toFixed(2)+' g';
     document.getElementById('imu_accel_z').textContent = 'accel Z: '+imuValues.accelZ.toFixed(2)+' g';
-    document.getElementById('imu_temp').textContent = 'temp: '+imuValues.tempC.toFixed(2)+' °C';
+    document.getElementById('imu_temp').textContent    = 'temp: '+imuValues.tempC.toFixed(2)+' °C';
 
     if(!imuValid){
       if(!imuWarned){
@@ -283,14 +315,44 @@ async function poll(){
     }else{
       const signature = JSON.stringify(imuValues);
       if(signature!==lastImuSignature){
-        logConsole('[INFO] IMU updated: angle_x='+imuValues.angleX.toFixed(2)+', angle_y='+imuValues.angleY.toFixed(2)+', ax='+imuValues.accelX.toFixed(2)+', ay='+imuValues.accelY.toFixed(2)+', az='+imuValues.accelZ.toFixed(2)+', gx='+imuValues.gyroX.toFixed(2)+', gy='+imuValues.gyroY.toFixed(2)+', gz='+imuValues.gyroZ.toFixed(2)+', temp='+imuValues.tempC.toFixed(2));
+        logConsole(
+          '[INFO] IMU updated: angle_x='+imuValues.angleX.toFixed(2)+
+          ', angle_y='+imuValues.angleY.toFixed(2)+
+          ', ax='+imuValues.accelX.toFixed(2)+
+          ', ay='+imuValues.accelY.toFixed(2)+
+          ', az='+imuValues.accelZ.toFixed(2)+
+          ', gx='+imuValues.gyroX.toFixed(2)+
+          ', gy='+imuValues.gyroY.toFixed(2)+
+          ', gz='+imuValues.gyroZ.toFixed(2)+
+          ', temp='+imuValues.tempC.toFixed(2)
+        );
         lastImuSignature = signature;
       }
       imuWarned=false;
     }
 
-    document.getElementById('telemetry').textContent = JSON.stringify(st,null,2);
-  }catch(e){ /* déjà loggé */ }
+    // --- Moniteur série ESP ---
+    const monitorEl = document.getElementById('serial_monitor');
+    let serialText = '';
+    if (typeof serial.text === 'string') {
+      serialText = serial.text;
+    } else if (Array.isArray(serial.lines)) {
+      serialText = serial.lines.join('\n');
+    } else if (Array.isArray(serial.buffer)) {
+      serialText = serial.buffer.join('\n');
+    }
+    if(serialText){
+      const sig = serialText;
+      if(sig !== lastSerialSignature){
+        monitorEl.textContent = serialText;
+        monitorEl.scrollTop = monitorEl.scrollHeight;
+        lastSerialSignature = sig;
+      }
+    }
+
+  }catch(e){
+    // déjà loggé par getJSON
+  }
   setTimeout(poll, 200);
 }
 
