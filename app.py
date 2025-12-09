@@ -42,6 +42,7 @@ state = {
     "origin_deg": 0.0,
     "axes": {axis: _axis_state() for axis in AXES},
     "imu": _imu_state(),
+    "serial": {"connected": False, "lines": []},
 }
 
 lock = threading.Lock()
@@ -50,28 +51,43 @@ lock = threading.Lock()
 # --- Remplacer entièrement uart_reader() par ceci ---
 def uart_reader():
     import serial, json, time
+
     def fnum(v):
         try:
             return float(v)
         except Exception:
             return None
 
+    def append_serial_line(text):
+        if text is None:
+            return
+        with lock:
+            buf = state["serial"]["lines"]
+            buf.append(text)
+            if len(buf) > 200:
+                # FIFO: on conserve les 200 dernières lignes
+                del buf[:-200]
+
     while True:
         try:
             with serial.Serial(UART_PORT, UART_BAUD, timeout=1) as ser:
-                buf = b""
+                with lock:
+                    state["serial"]["connected"] = True
                 while True:
                     line = ser.readline()
                     if not line:
                         continue
-                    s = line.decode("utf-8", errors="ignore").strip()
+                    s = line.decode("utf-8", errors="ignore").rstrip("\r\n")
+                    if s:
+                        append_serial_line(s)
+
                     if not s or s[0] != "{":
-                        # ignorer bruit ou bannières non-JSON
+                        # ignorer bruit ou bannières non-JSON pour l'IMU
                         continue
                     try:
                         obj = json.loads(s)
                     except json.JSONDecodeError:
-                        # ligne tronquée: on ignore
+                        # ligne tronquée: on ignore pour l'IMU mais on a déjà stocké la ligne brute
                         continue
 
                     # accepter plusieurs schémas
@@ -114,6 +130,8 @@ def uart_reader():
                         except Exception:
                             pass
         except Exception:
+            with lock:
+                state["serial"]["connected"] = False
             time.sleep(1)
 
 # --- Utilitaires JSON ---
