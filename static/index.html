@@ -98,7 +98,6 @@
         </div>
       </div>
     </div>
-    <!-- plus de dump JSON ici -->
   </section>
 
   <section>
@@ -334,20 +333,28 @@ async function poll(){
     // --- Moniteur série ESP ---
     const monitorEl = document.getElementById('serial_monitor');
     let serialText = '';
+
+    // cas 1 : backend met un champ text
     if (typeof serial.text === 'string') {
       serialText = serial.text;
-    } else if (Array.isArray(serial.lines)) {
+    }
+    // cas 2 : backend met un tableau de lignes
+    else if (Array.isArray(serial.lines)) {
       serialText = serial.lines.join('\n');
-    } else if (Array.isArray(serial.buffer)) {
+    }
+    else if (Array.isArray(serial.buffer)) {
       serialText = serial.buffer.join('\n');
     }
-    if(serialText){
-      const sig = serialText;
-      if(sig !== lastSerialSignature){
-        monitorEl.textContent = serialText;
-        monitorEl.scrollTop = monitorEl.scrollHeight;
-        lastSerialSignature = sig;
-      }
+    // fallback bourrin : montrer tout le state si rien n’est défini
+    else {
+      serialText = JSON.stringify(st,null,2);
+    }
+
+    const sig = serialText;
+    if(sig !== lastSerialSignature){
+      monitorEl.textContent = serialText || '';
+      monitorEl.scrollTop = monitorEl.scrollHeight;
+      lastSerialSignature = sig;
     }
 
   }catch(e){
