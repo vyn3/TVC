@@ -15,6 +15,8 @@
     pre{background:var(--bg);padding:12px;border-radius:8px;overflow:auto}
     .mono{font-family:ui-monospace,Consolas,monospace}
     .pill{padding:4px 8px;border-radius:999px;border:1px solid #ccc}
+    .pill.ok{background:#e6ffed;border-color:#34c759}
+    .pill.ko{background:#ffecec;border-color:#ff3b30}
     button{cursor:pointer}
     h3{margin:0 0 8px}
     .axis-grid{display:flex;flex-wrap:wrap;gap:12px}
@@ -33,6 +35,7 @@
       <button onclick="setMode('demo')">Demo</button>
       <span id="mode" class="pill">mode: ?</span>
       <span id="ver" class="pill">version: ?</span>
+      <span id="esp_status" class="pill">ESP: inconnu</span>
     </div>
   </section>
 
@@ -129,6 +132,11 @@
   </section>
 
   <section>
+    <h2>Moniteur série (ESP)</h2>
+    <pre id="serial_monitor" class="mono" style="max-height:260px"></pre>
+  </section>
+
+  <section>
     <h2>Console</h2>
     <div class="row">
       <label><input id="debugToggle" type="checkbox" checked> Debug on</label>
@@ -140,6 +148,7 @@
 <script>
 let lastImuSignature=null;
 let imuWarned=false;
+let lastSerialConnected=null;
 
 function ts(){ const d=new Date(); return d.toLocaleTimeString(); }
 function logConsole(msg, level="INFO"){
@@ -289,7 +298,27 @@ async function poll(){
       imuWarned=false;
     }
 
-    document.getElementById('telemetry').textContent = JSON.stringify(st,null,2);
+    // Limiter l'affichage à la partie IMU pour éviter d'inonder la télémétrie
+    document.getElementById('telemetry').textContent = JSON.stringify(imu||{},null,2);
+
+    const serial = st.serial;
+    const espStatus = document.getElementById('esp_status');
+    if(serial && typeof serial === 'object'){
+      const connected = serial.connected === true;
+      espStatus.textContent = connected ? 'ESP: connecté' : 'ESP: déconnecté';
+      espStatus.classList.remove('ok','ko');
+      espStatus.classList.add(connected ? 'ok' : 'ko');
+      if(lastSerialConnected !== connected){
+        logConsole(`ESP série ${connected ? 'connecté' : 'déconnecté'}`,'INFO');
+        lastSerialConnected = connected;
+      }
+
+      if(Array.isArray(serial.lines)){
+        const pre=document.getElementById('serial_monitor');
+        pre.textContent = serial.lines.join('\n');
+        pre.scrollTop = pre.scrollHeight;
+      }
+    }
   }catch(e){ /* déjà loggé */ }
   setTimeout(poll, 200);
 }
